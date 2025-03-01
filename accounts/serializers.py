@@ -6,7 +6,7 @@ from accounts.models import User
 class RegisterSerializer(ModelSerializer):
     class Meta:
         model = User
-        fields = ('username', 'first_name', 'last_name', 'email', 'gender')
+        fields = ('username', 'first_name', 'last_name', 'email', 'gender', 'password', 'phone_number')
 
 class ConfirmationSerializer(Serializer):
     email = serializers.EmailField()

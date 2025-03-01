@@ -1,31 +1,32 @@
-from django.contrib.auth.tokens import default_token_generator
-from django.shortcuts import render
 import random
-from django.utils.encoding import force_str
-from django.core.cache import cache
+from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_bytes
+from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from rest_framework import status
-from rest_framework.generics import CreateAPIView, GenericAPIView
-from passlib.context import CryptContext
-
 from dotenv import load_dotenv
+from passlib.context import CryptContext
+from rest_framework.generics import CreateAPIView
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.views import APIView
-from yaml import serialize
+from rest_framework_simplejwt.tokens import RefreshToken
 
-from accounts.models import User
-from accounts.serializers import UserSerializer, ConfirmationSerializer, PasswordResetRequestSerializer, \
-    PasswordResetLoginSerializer
+from accounts.serializers import UserSerializer, PasswordResetRequestSerializer, \
+    PasswordResetLoginSerializer, RegisterSerializer
 from accounts.tasks import send_email, send_forget_password
 
 load_dotenv()
 pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
+from django.core.cache import cache
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.generics import GenericAPIView
+from .serializers import ConfirmationSerializer
+from .models import User
+
 
 class RegisterAPIView(CreateAPIView):
-    serializer_class = UserSerializer
+    serializer_class = RegisterSerializer
 
     def generate_confirmation_code(self):
         return random.randrange(10000, 90000)
@@ -60,6 +61,8 @@ class RegisterAPIView(CreateAPIView):
         return Response({'confirmation_code': confirmation_code}, status=status.HTTP_200_OK)
 
 
+
+
 class ConfirmationCodeAPIView(GenericAPIView):
     serializer_class = ConfirmationSerializer
 
@@ -68,28 +71,37 @@ class ConfirmationCodeAPIView(GenericAPIView):
         confirmation_code = request.data.get('confirmation_code')
         cashed_data = cache.get(email)
 
-        if cashed_data and confirmation_code == cashed_data.get('confirmation_code'):
-            username = cashed_data.get('username')
-            password = cashed_data.get('password')
-            first_name = cashed_data.get('first_name')
-            last_name = cashed_data.get('last_name')
-            phone_number = cashed_data.get('phone_number')
-            gender = cashed_data.get('gender')
-            if User.objects.filter(email=email).exists():
-                return Response({'success': False, 'message': 'This Email already exists! '}, status=400)
-            if User.objects.filter(username=username).exists():
-                return Response({'success': False, 'message': 'This Username already exists! '}, status=400)
-            else:
-                user = User.objects.create_user(
-                    username=username,
-                    first_name=first_name,
-                    last_name=last_name,
-                    phone_number=phone_number,
-                    gender=gender,
-                    email=email,
-                    password=password,
-                )
-                return Response({'success': True, 'user': user}, status=status.HTTP_200_OK)
+        if not cashed_data:
+            return Response({'success': False, 'message': 'Kod eskirgan yoki mavjud emas!'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if confirmation_code != cashed_data.get('confirmation_code'):
+            return Response({'success': False, 'message': 'Kod noto‘g‘ri!'}, status=status.HTTP_400_BAD_REQUEST)
+
+        username = cashed_data.get('username')
+        password = cashed_data.get('password')
+        first_name = cashed_data.get('first_name')
+        last_name = cashed_data.get('last_name')
+        phone_number = cashed_data.get('phone_number')
+        gender = cashed_data.get('gender')
+
+        if User.objects.filter(email=email).exists():
+            return Response({'success': False, 'message': 'This Email already exists!'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(username=username).exists():
+            return Response({'success': False, 'message': 'This Username already exists!'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.create_user(
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone_number,
+            gender=gender,
+            email=email,
+            password=password,
+        )
+
+        return Response({'success': True, 'message': 'User created successfully'}, status=status.HTTP_201_CREATED)
+
 
 class PasswordResetRequestView(GenericAPIView):
     serializer_class = PasswordResetRequestSerializer
@@ -142,3 +154,13 @@ class UserInfo(APIView):
         user = request.user
         user_serializer = UserSerializer(user)
         return Response(user_serializer.data)
+
+
+class LogoutAPIView(APIView):
+    pеrmission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        rеfresh_token = request.data.get('refresh')
+        token = RefreshToken(rеfresh_token)
+        token.blacklist()
+        return Response(status=204)
